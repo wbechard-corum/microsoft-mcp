@@ -221,9 +221,10 @@ def create_email_draft(
     """Create an email draft with file path(s) as attachments"""
     to_list = [to] if isinstance(to, str) else to
 
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
     message = {
         "subject": subject,
-        "body": {"contentType": "Text", "content": body},
+        "body": {"contentType": content_type, "content": body},
         "toRecipients": [{"emailAddress": {"address": addr}} for addr in to_list],
     }
 
@@ -297,9 +298,10 @@ def send_email(
     """Send an email immediately with file path(s) as attachments"""
     to_list = [to] if isinstance(to, str) else to
 
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
     message = {
         "subject": subject,
-        "body": {"contentType": "Text", "content": body},
+        "body": {"contentType": content_type, "content": body},
         "toRecipients": [{"emailAddress": {"address": addr}} for addr in to_list],
     }
 
@@ -351,9 +353,10 @@ def send_email(
         # Create draft first, then add large attachments, then send
         # We need to handle large attachments manually here
         to_list = [to] if isinstance(to, str) else to
+        content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
         message = {
             "subject": subject,
-            "body": {"contentType": "Text", "content": body},
+            "body": {"contentType": content_type, "content": body},
             "toRecipients": [{"emailAddress": {"address": addr}} for addr in to_list],
         }
         if cc:
@@ -457,7 +460,8 @@ def move_email(
 def reply_to_email(account_id: str, email_id: str, body: str) -> dict[str, str]:
     """Reply to an email (sender only)"""
     endpoint = f"/me/messages/{email_id}/reply"
-    payload = {"message": {"body": {"contentType": "Text", "content": body}}}
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
+    payload = {"message": {"body": {"contentType": content_type, "content": body}}}
     graph.request("POST", endpoint, account_id, json=payload)
     return {"status": "sent"}
 
@@ -466,9 +470,17 @@ def reply_to_email(account_id: str, email_id: str, body: str) -> dict[str, str]:
 def reply_all_email(account_id: str, email_id: str, body: str) -> dict[str, str]:
     """Reply to all recipients of an email"""
     endpoint = f"/me/messages/{email_id}/replyAll"
-    payload = {"message": {"body": {"contentType": "Text", "content": body}}}
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
+    payload = {"message": {"body": {"contentType": content_type, "content": body}}}
     graph.request("POST", endpoint, account_id, json=payload)
     return {"status": "sent"}
+
+
+@mcp.tool
+def list_calendars(account_id: str) -> list[dict[str, Any]]:
+    """List all calendars for the account"""
+    params = {"$select": "id,name,color,isDefaultCalendar,canEdit"}
+    return list(graph.request_paginated("/me/calendars", account_id, params=params))
 
 
 @mcp.tool
@@ -477,6 +489,7 @@ def list_events(
     days_ahead: int = 7,
     days_back: int = 0,
     include_details: bool = True,
+    calendar_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """List calendar events within specified date range, including recurring event instances"""
     now = dt.datetime.now(dt.timezone.utc)
@@ -498,8 +511,13 @@ def list_events(
         params["$select"] = "id,subject,start,end,location,organizer,seriesMasterId"
 
     # Use calendarView to get recurring event instances
+    endpoint = (
+        f"/me/calendars/{calendar_id}/calendarView"
+        if calendar_id
+        else "/me/calendarView"
+    )
     events = list(
-        graph.request_paginated("/me/calendarView", account_id, params=params)
+        graph.request_paginated(endpoint, account_id, params=params)
     )
 
     return events
@@ -524,6 +542,7 @@ def create_event(
     body: str | None = None,
     attendees: str | list[str] | None = None,
     timezone: str = "UTC",
+    calendar_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a calendar event"""
     event = {
@@ -544,7 +563,10 @@ def create_event(
             {"emailAddress": {"address": a}, "type": "required"} for a in attendees_list
         ]
 
-    result = graph.request("POST", "/me/events", account_id, json=event)
+    endpoint = (
+        f"/me/calendars/{calendar_id}/events" if calendar_id else "/me/events"
+    )
+    result = graph.request("POST", endpoint, account_id, json=event)
     if not result:
         raise ValueError("Failed to create event")
     return result
