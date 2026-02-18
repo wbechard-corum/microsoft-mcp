@@ -1104,3 +1104,185 @@ def unified_search(
             results.setdefault("other", []).append(item)
 
     return {k: v for k, v in results.items() if v}
+
+
+# ---------------------------------------------------------------------------
+# Outlook Tasks (Microsoft To Do)
+# Requires Tasks.ReadWrite permission in the Azure app registration
+# ---------------------------------------------------------------------------
+
+
+def _get_default_task_list_id(account_id: str) -> str:
+    """Return the ID of the default To Do task list."""
+    result = graph.request("GET", "/me/todo/lists", account_id)
+    if not result or "value" not in result:
+        raise ValueError("Could not retrieve task lists")
+    for lst in result["value"]:
+        if lst.get("wellknownListName") == "defaultList":
+            return lst["id"]
+    # Fallback: return the first list
+    if result["value"]:
+        return result["value"][0]["id"]
+    raise ValueError("No task lists found")
+
+
+@mcp.tool
+def list_task_lists(account_id: str) -> list[dict[str, Any]]:
+    """List all Outlook To Do task lists"""
+    result = graph.request("GET", "/me/todo/lists", account_id)
+    if not result or "value" not in result:
+        return []
+    return [
+        {
+            "id": lst["id"],
+            "displayName": lst.get("displayName", ""),
+            "isOwner": lst.get("isOwner", False),
+            "isShared": lst.get("isShared", False),
+            "wellknownListName": lst.get("wellknownListName", ""),
+        }
+        for lst in result["value"]
+    ]
+
+
+@mcp.tool
+def list_tasks(
+    account_id: str,
+    list_id: str | None = None,
+    include_completed: bool = False,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """List tasks in an Outlook To Do list. Uses the default list if list_id is not provided."""
+    if not list_id:
+        list_id = _get_default_task_list_id(account_id)
+
+    params: dict[str, Any] = {"$top": min(limit, 100)}
+    if not include_completed:
+        params["$filter"] = "status ne 'completed'"
+
+    tasks = list(
+        graph.request_paginated(
+            f"/me/todo/lists/{list_id}/tasks", account_id, params=params, limit=limit
+        )
+    )
+
+    return [
+        {
+            "id": t["id"],
+            "list_id": list_id,
+            "title": t.get("title", ""),
+            "status": t.get("status", ""),
+            "importance": t.get("importance", ""),
+            "isReminderOn": t.get("isReminderOn", False),
+            "dueDateTime": t.get("dueDateTime"),
+            "reminderDateTime": t.get("reminderDateTime"),
+            "body": t.get("body", {}).get("content", ""),
+            "createdDateTime": t.get("createdDateTime"),
+            "lastModifiedDateTime": t.get("lastModifiedDateTime"),
+        }
+        for t in tasks
+    ]
+
+
+@mcp.tool
+def create_task(
+    account_id: str,
+    title: str,
+    list_id: str | None = None,
+    due_datetime: str | None = None,
+    reminder_datetime: str | None = None,
+    body: str | None = None,
+) -> dict[str, Any]:
+    """Create a task in Outlook To Do.
+
+    Args:
+        account_id: The account ID
+        title: Task title
+        list_id: Task list ID (uses default list if not provided)
+        due_datetime: Due date/time in ISO 8601 format (e.g. '2026-02-18T17:00:00')
+        reminder_datetime: Reminder date/time in ISO 8601 format
+        body: Optional task notes
+    """
+    if not list_id:
+        list_id = _get_default_task_list_id(account_id)
+
+    payload: dict[str, Any] = {"title": title}
+
+    if due_datetime:
+        payload["dueDateTime"] = {"dateTime": due_datetime, "timeZone": "UTC"}
+
+    if reminder_datetime:
+        payload["reminderDateTime"] = {
+            "dateTime": reminder_datetime,
+            "timeZone": "UTC",
+        }
+        payload["isReminderOn"] = True
+
+    if body:
+        payload["body"] = {"content": body, "contentType": "text"}
+
+    result = graph.request(
+        "POST", f"/me/todo/lists/{list_id}/tasks", account_id, json=payload
+    )
+    if not result:
+        raise ValueError("Failed to create task")
+    return {"id": result["id"], "list_id": list_id, "title": result.get("title", ""), "status": result.get("status", "")}
+
+
+@mcp.tool
+def update_task(
+    account_id: str,
+    task_id: str,
+    list_id: str,
+    title: str | None = None,
+    due_datetime: str | None = None,
+    reminder_datetime: str | None = None,
+    status: str | None = None,
+    is_reminder_on: bool | None = None,
+) -> dict[str, Any]:
+    """Update an Outlook To Do task.
+
+    Args:
+        account_id: The account ID
+        task_id: The task ID
+        list_id: The task list ID
+        title: New task title
+        due_datetime: Due date/time in ISO 8601 format
+        reminder_datetime: Reminder date/time in ISO 8601 format
+        status: Task status — 'notStarted', 'inProgress', 'completed', 'waitingOnOthers', 'deferred'
+        is_reminder_on: Whether the reminder is active
+    """
+    payload: dict[str, Any] = {}
+
+    if title is not None:
+        payload["title"] = title
+    if due_datetime is not None:
+        payload["dueDateTime"] = {"dateTime": due_datetime, "timeZone": "UTC"}
+    if reminder_datetime is not None:
+        payload["reminderDateTime"] = {"dateTime": reminder_datetime, "timeZone": "UTC"}
+        payload["isReminderOn"] = True
+    if status is not None:
+        payload["status"] = status
+    if is_reminder_on is not None:
+        payload["isReminderOn"] = is_reminder_on
+
+    result = graph.request(
+        "PATCH", f"/me/todo/lists/{list_id}/tasks/{task_id}", account_id, json=payload
+    )
+    if not result:
+        raise ValueError("Failed to update task")
+    return {"id": result["id"], "list_id": list_id, "title": result.get("title", ""), "status": result.get("status", "")}
+
+
+@mcp.tool
+def complete_task(account_id: str, task_id: str, list_id: str) -> dict[str, Any]:
+    """Mark an Outlook To Do task as completed."""
+    return update_task(account_id, task_id, list_id, status="completed")
+
+
+@mcp.tool
+def delete_task(account_id: str, task_id: str, list_id: str) -> dict[str, str]:
+    """Delete an Outlook To Do task."""
+    graph.request(
+        "DELETE", f"/me/todo/lists/{list_id}/tasks/{task_id}", account_id
+    )
+    return {"status": "deleted", "task_id": task_id}
