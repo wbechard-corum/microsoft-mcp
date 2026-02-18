@@ -736,6 +736,118 @@ def delete_contact(contact_id: str, account_id: str) -> dict[str, str]:
 
 
 @mcp.tool
+def list_chats(account_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    """List Teams chats with last message preview and members"""
+    params = {
+        "$top": min(limit, 50),
+        "$select": "id,topic,chatType,createdDateTime,lastUpdatedDateTime,webUrl",
+        "$expand": "lastMessagePreview,members",
+        "$orderby": "lastMessagePreview/createdDateTime desc",
+    }
+    return list(
+        graph.request_paginated("/me/chats", account_id, params=params, limit=limit)
+    )
+
+
+@mcp.tool
+def get_chat(chat_id: str, account_id: str) -> dict[str, Any]:
+    """Get details of a specific Teams chat including members"""
+    result = graph.request(
+        "GET", f"/me/chats/{chat_id}", account_id,
+        params={"$expand": "members"},
+    )
+    if not result:
+        raise ValueError(f"Chat with ID {chat_id} not found")
+    return result
+
+
+@mcp.tool
+def list_chat_messages(
+    account_id: str, chat_id: str, limit: int = 50
+) -> list[dict[str, Any]]:
+    """List messages in a Teams chat, newest first"""
+    params = {"$top": min(limit, 50)}
+    return list(
+        graph.request_paginated(
+            f"/me/chats/{chat_id}/messages", account_id, params=params, limit=limit
+        )
+    )
+
+
+@mcp.tool
+def send_chat_message(
+    account_id: str, chat_id: str, body: str
+) -> dict[str, Any]:
+    """Send a message to a Teams chat"""
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
+    payload = {"body": {"contentType": content_type, "content": body}}
+    result = graph.request(
+        "POST", f"/me/chats/{chat_id}/messages", account_id, json=payload
+    )
+    if not result:
+        raise ValueError("Failed to send chat message")
+    return result
+
+
+@mcp.tool
+def create_chat(
+    account_id: str,
+    members: str | list[str],
+    topic: str | None = None,
+    message: str | None = None,
+) -> dict[str, Any]:
+    """Create a new Teams chat (1:1 or group) by email address
+
+    Args:
+        account_id: The account ID
+        members: Email address(es) of chat members (excluding yourself)
+        topic: Optional chat topic (group chats only)
+        message: Optional initial message to send after creating the chat
+    """
+    members_list = [members] if isinstance(members, str) else members
+
+    me_info = graph.request("GET", "/me", account_id)
+    if not me_info or "mail" not in me_info:
+        raise ValueError("Failed to get user email address")
+
+    chat_members = [
+        {
+            "@odata.type": "#microsoft.graph.aadUserConversationMember",
+            "roles": ["owner"],
+            "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{me_info['mail']}')",
+        }
+    ]
+    for member in members_list:
+        chat_members.append({
+            "@odata.type": "#microsoft.graph.aadUserConversationMember",
+            "roles": ["owner"],
+            "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{member}')",
+        })
+
+    chat_type = "oneOnOne" if len(members_list) == 1 else "group"
+    payload: dict[str, Any] = {"chatType": chat_type, "members": chat_members}
+    if topic and chat_type == "group":
+        payload["topic"] = topic
+
+    result = graph.request("POST", "/chats", account_id, json=payload)
+    if not result:
+        raise ValueError("Failed to create chat")
+
+    if message and "id" in result:
+        send_chat_message(account_id, result["id"], message)
+
+    return result
+
+
+@mcp.tool
+def search_chat_messages(
+    query: str, account_id: str, limit: int = 50
+) -> list[dict[str, Any]]:
+    """Search across Teams chat messages"""
+    return list(graph.search_query(query, ["chatMessage"], account_id, limit))
+
+
+@mcp.tool
 def list_files(
     account_id: str, path: str = "/", limit: int = 50
 ) -> list[dict[str, Any]]:
