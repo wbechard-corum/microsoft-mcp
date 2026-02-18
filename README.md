@@ -1,11 +1,12 @@
 # Microsoft MCP
 
-Powerful MCP server for Microsoft Graph API - a complete AI assistant toolkit for Outlook, Calendar, OneDrive, and Contacts.
+Powerful MCP server for Microsoft Graph API - a complete AI assistant toolkit for Outlook, Calendar, Teams, OneDrive, and Contacts.
 
 ## Features
 
 - **Email Management**: Read, send, reply, manage attachments, organize folders
-- **Calendar Intelligence**: Create, update, check availability, respond to invitations
+- **Calendar Intelligence**: Multi-calendar support, create, update, check availability, respond to invitations
+- **Teams Chat**: List chats, send messages, create 1:1 or group chats, search messages
 - **OneDrive Files**: Upload, download, browse with pagination
 - **Contacts**: Search and list contacts from your address book
 - **Multi-Account**: Support for multiple Microsoft accounts (personal, work, school)
@@ -60,7 +61,8 @@ claude
 - **`search_emails`** - Search emails by query
 
 ### Calendar Tools
-- **`list_events`** - List calendar events with details
+- **`list_calendars`** - List all calendars for the account
+- **`list_events`** - List calendar events with details (supports specific calendar)
 - **`get_event`** - Get specific event details
 - **`create_event`** - Create events with location and attendees
 - **`update_event`** - Reschedule or modify events
@@ -76,6 +78,14 @@ claude
 - **`update_contact`** - Update contact information
 - **`delete_contact`** - Delete contact
 - **`search_contacts`** - Search contacts by query
+
+### Teams Chat Tools
+- **`list_chats`** - List Teams chats with last message preview and members
+- **`get_chat`** - Get details of a specific chat including members
+- **`list_chat_messages`** - List messages in a chat, newest first
+- **`send_chat_message`** - Send a message to an existing Teams chat
+- **`create_chat`** - Create a new 1:1 or group chat by email address
+- **`search_chat_messages`** - Search across Teams chat messages
 
 ### File Tools
 - **`list_files`** - Browse OneDrive files and folders
