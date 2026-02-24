@@ -221,7 +221,7 @@ def create_email_draft(
     """Create an email draft with file path(s) as attachments"""
     to_list = [to] if isinstance(to, str) else to
 
-    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<ul", "<ol", "<li", "<br", "<strong", "<em", "<a ", "<img", "<span", "<b>", "<i>", "<hr")) else "Text"
     message = {
         "subject": subject,
         "body": {"contentType": content_type, "content": body},
@@ -298,7 +298,7 @@ def send_email(
     """Send an email immediately with file path(s) as attachments"""
     to_list = [to] if isinstance(to, str) else to
 
-    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<ul", "<ol", "<li", "<br", "<strong", "<em", "<a ", "<img", "<span", "<b>", "<i>", "<hr")) else "Text"
     message = {
         "subject": subject,
         "body": {"contentType": content_type, "content": body},
@@ -353,7 +353,7 @@ def send_email(
         # Create draft first, then add large attachments, then send
         # We need to handle large attachments manually here
         to_list = [to] if isinstance(to, str) else to
-        content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
+        content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<ul", "<ol", "<li", "<br", "<strong", "<em", "<a ", "<img", "<span", "<b>", "<i>", "<hr")) else "Text"
         message = {
             "subject": subject,
             "body": {"contentType": content_type, "content": body},
@@ -460,7 +460,7 @@ def move_email(
 def reply_to_email(account_id: str, email_id: str, body: str) -> dict[str, str]:
     """Reply to an email (sender only)"""
     endpoint = f"/me/messages/{email_id}/reply"
-    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<ul", "<ol", "<li", "<br", "<strong", "<em", "<a ", "<img", "<span", "<b>", "<i>", "<hr")) else "Text"
     payload = {"message": {"body": {"contentType": content_type, "content": body}}}
     graph.request("POST", endpoint, account_id, json=payload)
     return {"status": "sent"}
@@ -470,7 +470,7 @@ def reply_to_email(account_id: str, email_id: str, body: str) -> dict[str, str]:
 def reply_all_email(account_id: str, email_id: str, body: str) -> dict[str, str]:
     """Reply to all recipients of an email"""
     endpoint = f"/me/messages/{email_id}/replyAll"
-    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<ul", "<ol", "<li", "<br", "<strong", "<em", "<a ", "<img", "<span", "<b>", "<i>", "<hr")) else "Text"
     payload = {"message": {"body": {"contentType": content_type, "content": body}}}
     graph.request("POST", endpoint, account_id, json=payload)
     return {"status": "sent"}
@@ -779,7 +779,7 @@ def send_chat_message(
     account_id: str, chat_id: str, body: str
 ) -> dict[str, Any]:
     """Send a message to a Teams chat"""
-    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p>", "<h1")) else "Text"
+    content_type = "HTML" if body.strip().lower().startswith(("<html", "<!doctype", "<div", "<table", "<p", "<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<ul", "<ol", "<li", "<br", "<strong", "<em", "<a ", "<img", "<span", "<b>", "<i>", "<hr")) else "Text"
     payload = {"body": {"contentType": content_type, "content": body}}
     result = graph.request(
         "POST", f"/me/chats/{chat_id}/messages", account_id, json=payload
