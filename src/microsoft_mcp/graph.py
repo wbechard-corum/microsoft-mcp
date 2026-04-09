@@ -1,7 +1,7 @@
 import httpx
 import time
 from typing import Any, Iterator
-from .auth import get_token
+from .auth import get_token, AuthenticationExpiredError
 
 BASE_URL = "https://graph.microsoft.com/v1.0"
 # 15 x 320 KiB = 4,915,200 bytes
@@ -19,68 +19,82 @@ def request(
     data: bytes | None = None,
     max_retries: int = 3,
 ) -> dict[str, Any] | None:
-    headers = {
-        "Authorization": f"Bearer {get_token(account_id)}",
-    }
+    force_refresh = False
+    auth_retried = False
 
-    if method == "GET":
-        if "$search" in (params or {}):
-            headers["Prefer"] = 'outlook.body-content-type="text"'
-        elif "body" in (params or {}).get("$select", ""):
-            headers["Prefer"] = 'outlook.body-content-type="text"'
-    else:
-        headers["Content-Type"] = (
-            "application/json" if json else "application/octet-stream"
-        )
+    while True:
+        headers = {
+            "Authorization": f"Bearer {get_token(account_id, force_refresh=force_refresh)}",
+        }
 
-    if params and (
-        "$search" in params
-        or "contains(" in params.get("$filter", "")
-        or "/any(" in params.get("$filter", "")
-    ):
-        headers["ConsistencyLevel"] = "eventual"
-        params.setdefault("$count", "true")
-
-    retry_count = 0
-    while retry_count <= max_retries:
-        try:
-            response = _client.request(
-                method=method,
-                url=f"{BASE_URL}{path}",
-                headers=headers,
-                params=params,
-                json=json,
-                content=data,
+        if method == "GET":
+            if "$search" in (params or {}):
+                headers["Prefer"] = 'outlook.body-content-type="text"'
+            elif "body" in (params or {}).get("$select", ""):
+                headers["Prefer"] = 'outlook.body-content-type="text"'
+        else:
+            headers["Content-Type"] = (
+                "application/json" if json else "application/octet-stream"
             )
 
-            if response.status_code == 429:
-                retry_after = int(response.headers.get("Retry-After", "5"))
-                if retry_count < max_retries:
-                    time.sleep(min(retry_after, 60))
+        if params and (
+            "$search" in params
+            or "contains(" in params.get("$filter", "")
+            or "/any(" in params.get("$filter", "")
+        ):
+            headers["ConsistencyLevel"] = "eventual"
+            params.setdefault("$count", "true")
+
+        retry_count = 0
+        while retry_count <= max_retries:
+            try:
+                response = _client.request(
+                    method=method,
+                    url=f"{BASE_URL}{path}",
+                    headers=headers,
+                    params=params,
+                    json=json,
+                    content=data,
+                )
+
+                # 401: try force-refreshing the token once before giving up
+                if response.status_code == 401 and not auth_retried:
+                    auth_retried = True
+                    force_refresh = True
+                    break  # break inner loop to retry with fresh token
+
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get("Retry-After", "5"))
+                    if retry_count < max_retries:
+                        time.sleep(min(retry_after, 60))
+                        retry_count += 1
+                        continue
+
+                if response.status_code >= 500 and retry_count < max_retries:
+                    wait_time = (2**retry_count) * 1
+                    time.sleep(wait_time)
                     retry_count += 1
                     continue
 
-            if response.status_code >= 500 and retry_count < max_retries:
-                wait_time = (2**retry_count) * 1
-                time.sleep(wait_time)
-                retry_count += 1
-                continue
+                response.raise_for_status()
 
-            response.raise_for_status()
+                if response.content:
+                    return response.json()
+                return None
 
-            if response.content:
-                return response.json()
+            except httpx.HTTPStatusError as e:
+                if retry_count < max_retries and e.response.status_code >= 500:
+                    wait_time = (2**retry_count) * 1
+                    time.sleep(wait_time)
+                    retry_count += 1
+                    continue
+                raise
+        else:
+            # Inner loop exhausted retries without breaking — we're done
             return None
 
-        except httpx.HTTPStatusError as e:
-            if retry_count < max_retries and e.response.status_code >= 500:
-                wait_time = (2**retry_count) * 1
-                time.sleep(wait_time)
-                retry_count += 1
-                continue
-            raise
-
-    return None
+        # If we broke out of inner loop for 401 retry, continue outer loop
+        continue
 
 
 def request_paginated(

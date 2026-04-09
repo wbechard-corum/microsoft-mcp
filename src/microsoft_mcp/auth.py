@@ -10,6 +10,12 @@ CACHE_FILE = pl.Path.home() / ".microsoft_mcp_token_cache.json"
 SCOPES = ["https://graph.microsoft.com/.default"]
 
 
+class AuthenticationExpiredError(Exception):
+    """Raised when silent token refresh fails and re-authentication is needed."""
+
+    pass
+
+
 class Account(NamedTuple):
     username: str
     account_id: str
@@ -47,7 +53,7 @@ def get_app() -> msal.PublicClientApplication:
     return app
 
 
-def get_token(account_id: str | None = None) -> str:
+def get_token(account_id: str | None = None, force_refresh: bool = False) -> str:
     app = get_app()
 
     accounts = app.get_accounts()
@@ -60,26 +66,19 @@ def get_token(account_id: str | None = None) -> str:
     elif accounts:
         account = accounts[0]
 
-    result = app.acquire_token_silent(SCOPES, account=account)
-
-    if not result:
-        flow = app.initiate_device_flow(scopes=SCOPES)
-        if "user_code" not in flow:
-            raise Exception(
-                f"Failed to get device code: {flow.get('error_description', 'Unknown error')}"
-            )
-        verification_uri = flow.get(
-            "verification_uri",
-            flow.get("verification_url", "https://microsoft.com/devicelogin"),
+    if not account:
+        raise AuthenticationExpiredError(
+            "No authenticated accounts found. Use the 'authenticate_account' tool to sign in."
         )
-        print(
-            f"\nTo authenticate:\n1. Visit {verification_uri}\n2. Enter code: {flow['user_code']}"
-        )
-        result = app.acquire_token_by_device_flow(flow)
 
-    if "error" in result:
-        raise Exception(
-            f"Auth failed: {result.get('error_description', result['error'])}"
+    result = app.acquire_token_silent(
+        SCOPES, account=account, force_refresh=force_refresh
+    )
+
+    if not result or "error" in (result or {}):
+        raise AuthenticationExpiredError(
+            "Authentication expired and could not be refreshed silently. "
+            "Use the 'authenticate_account' tool to re-authenticate."
         )
 
     cache = app.token_cache
